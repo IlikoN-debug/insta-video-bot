@@ -7,7 +7,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 INSTA_USERNAME = "test85046"
-INSTA_PASSWORD = "Testtest1234567890"
+INSTA_PASSWORD = "testtest1234567890"
 SESSION_FILE = "sessionfile"
 
 L = instaloader.Instaloader()
@@ -79,8 +79,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Неверная ссылка.")
 
-def main():
-    asyncio.run(login_instagram())
+async def main():
+    await login_instagram()
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
@@ -88,7 +88,7 @@ def main():
     
     port = int(os.environ.get("PORT", 5000))
     host = "0.0.0.0"
-    app.run_webhook(listen=host, port=port, url_path=TOKEN, webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{TOKEN}")
+    await app.run_webhook(listen=host, port=port, url_path=TOKEN, webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{TOKEN}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
