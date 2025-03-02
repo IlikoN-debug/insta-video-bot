@@ -13,17 +13,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "instagram.com" in message_text:
         await update.message.reply_text("Скачиваю видео, подожди немного...")
         try:
-            # Настраиваем Instaloader с User-Agent для обхода блокировок
+            # Настраиваем Instaloader с улучшенными заголовками
             L = instaloader.Instaloader(download_pictures=False, download_videos=True, 
                                         download_video_thumbnails=False, download_geotags=False, 
                                         download_comments=False, save_metadata=False)
-            L.context._session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
-            # Извлекаем короткий код поста
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Referer': 'https://www.instagram.com/'
+            }
+            L.context._session.headers.update(headers)
+            # Извлекаем короткий код
             shortcode = message_text.split("/")[-2]
-            # Загружаем пост
             post = instaloader.Post.from_shortcode(L.context, shortcode)
             L.download_post(post, target="downloads")
-            # Ищем видео в папке
             for root, dirs, files in os.walk("downloads"):
                 for file in files:
                     if file.endswith(".mp4"):
