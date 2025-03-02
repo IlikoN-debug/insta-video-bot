@@ -1,99 +1,133 @@
 import os
-import random
 import asyncio
-import requests
-from bs4 import BeautifulSoup
+import instaloader
 import shutil
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.constants import ParseMode
 
+# Telegram токен
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-SAVEFROM_URL = "https://uk.savefrom.net/savefrom.php"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Отправь мне ссылку на видео из Instagram, и я скачаю его для тебя через SaveFrom.net.")
+# Instagram логин и пароль
+INSTA_USERNAME = "test85046"
+INSTA_PASSWORD = "testtest1234567890"
 
-async def download_video_from_savefrom(url, update, context):
+# Создаем экземпляр Instaloader
+L = instaloader.Instaloader()
+
+# Функция авторизации в Instagram
+async def login_instagram():
     try:
-        payload = {
-            "sf_url": url,
-            "new": "2",
-            "lang": "uk",
-            "app": "",
-            "country": "ua",
-            "os": "Windows",
-            "browser": "Chrome",
-            "channel": "second",
-            "sf-nomad": "1"
-        }
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124",
-            "Referer": "https://uk.savefrom.net/"  # Добавляем Referer
-        }
-        worker_url = "https://worker.savefrom.net/savefrom.php"
-        response = requests.post(worker_url, data=payload, headers=headers)
-        response.raise_for_status()
+        L.login(INSTA_USERNAME, INSTA_PASSWORD)
+        print("Успешно авторизован в Instagram")
+    except Exception as e:
+        print(f"Ошибка авторизации: {e}")
 
-        # Логируем ответ для анализа
-        text = response.text
-        if "Something went wrong" in text:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"SaveFrom.net не обработал ссылку:\n{text[:4000]}")
-            raise Exception("SaveFrom.net вернул ошибку обработки.")
+# Функция для команды /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Скачать видео", callback_data="download")],
+        [InlineKeyboardButton("Помощь", callback_data="help")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "👋 Привет! Я бот для скачивания видео из Instagram.\nВыбери действие:",
+        reply_markup=reply_markup
+    )
 
-        # Ищем URL в тексте (на случай, если он где-то спрятан)
-        import re
-        url_match = re.search(r'(https?://[^\s]+\.mp4)', text)
-        if url_match:
-            video_url = url_match.group(0)
-        else:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Не нашел URL в ответе:\n{text[:4000]}")
-            raise Exception("Ссылка на видео не найдена.")
+# Функция обработки кнопок
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-        video_response = requests.get(video_url, headers=headers, stream=True)
-        video_response.raise_for_status()
+    if query.data == "download":
+        await query.edit_message_text("📥 Отправь мне ссылку на видео из Instagram:")
+    elif query.data == "help":
+        await query.edit_message_text(
+            "ℹ️ Как использовать бота:\n"
+            "1. Нажми 'Скачать видео'\n"
+            "2. Отправь ссылку на пост или рил\n"
+            "3. Дождись загрузки\n\n"
+            "Поддерживаются публичные и приватные видео (если аккаунт авторизован)."
+        )
 
+# Функция для отслеживания прогресса загрузки
+async def progress_callback(update, context, filename, total_size):
+    def update_progress(downloaded, total):
+        if total > 0:
+            percent = int((downloaded / total) * 100)
+            context.user_data["last_percent"] = percent
+            asyncio.create_task(update.message.reply_text(f"📊 Прогресс: {percent}%"))
+
+    L.download_progress_callback = update_progress
+
+# Функция загрузки видео
+async def download_video(url, update, context):
+    try:
+        # Извлекаем shortcode из URL
+        shortcode = url.split("/")[-2] if url.endswith("/") else url.split("/")[-1].split("?")[0]
+        
+        # Загружаем пост
+        post = instaloader.Post.from_shortcode(L.context, shortcode)
+        
+        # Проверяем, есть ли видео
+        if not post.is_video:
+            raise Exception("Это не видео.")
+
+        # Создаем папку downloads
         if os.path.exists("downloads"):
             shutil.rmtree("downloads")
         os.makedirs("downloads")
-        
-        video_path = "downloads/video.mp4"
-        with open(video_path, "wb") as f:
-            for chunk in video_response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        
-        return video_path
-    
-    except Exception as e:
-        raise Exception(f"Ошибка при загрузке видео: {str(e)}")
 
+        # Устанавливаем путь для сохранения
+        L.dirname_pattern = "downloads/{shortcode}"
+        await update.message.reply_text("⏳ Начинаю загрузку...")
+
+        # Отслеживание прогресса
+        await progress_callback(update, context, f"{shortcode}.mp4", post.video_duration * 1024 * 1024)  # Примерный размер
+        
+        # Загружаем видео
+        L.download_post(post, target="downloads")
+        
+        # Ищем видео файл
+        video_path = f"downloads/{shortcode}/{shortcode}.mp4"
+        if not os.path.exists(video_path):
+            raise Exception("Файл видео не найден.")
+
+        # Отправляем видео
+        with open(video_path, "rb") as video_file:
+            await update.message.reply_video(video_file, caption="✅ Видео загружено!")
+        
+        # Удаляем папку после отправки
+        shutil.rmtree("downloads")
+        
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Ошибка: {str(e)}")
+        if os.path.exists("downloads"):
+            shutil.rmtree("downloads")
+
+# Функция обработки текстовых сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text
     
     if "instagram.com" in message_text:
-        await update.message.reply_text("Скачиваю видео через SaveFrom.net, подожди немного...")
-        
-        try:
-            await asyncio.sleep(random.uniform(1.0, 3.0))
-            video_path = await download_video_from_savefrom(message_text, update, context)
-            
-            with open(video_path, 'rb') as video_file:
-                await update.message.reply_video(video_file)
-            
-            os.remove(video_path)
-            await update.message.reply_text("✅ Видео успешно отправлено!")
-            
-        except Exception as e:
-            error_msg = f"⚠️ Ошибка: {str(e)}"
-            await update.message.reply_text(error_msg)
-            
+        await download_video(message_text, update, context)
     else:
-        await update.message.reply_text("❌ Это не похоже на ссылку Instagram. Попробуй еще раз!")
+        await update.message.reply_text("❌ Это не похоже на ссылку Instagram. Отправь корректную ссылку.")
 
+# Главная функция
 def main():
+    # Авторизация в Instagram при старте
+    asyncio.run(login_instagram())
+    
+    # Настройка бота
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
+    # Настройки для Render
     port = int(os.environ.get("PORT", 5000))
     host = "0.0.0.0"
     
