@@ -23,22 +23,23 @@ async def download_video_from_savefrom(url, update, context):
             "country": "ua",
             "os": "Windows",
             "browser": "Chrome",
-            "channel": "second"
+            "channel": "second",
+            "sf-nomad": "1"
         }
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124"
         }
-        response = requests.post(SAVEFROM_URL, data=payload, headers=headers)
+        worker_url = "https://worker.savefrom.net/savefrom.php"
+        response = requests.post(worker_url, data=payload, headers=headers)
         response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        download_link = soup.find("a", class_="def-btn", href=True) or soup.find("a", href=lambda x: x and "mp4" in x.lower())
-        if not download_link:
-            # Логируем первые 4000 символов ответа в чат
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"HTML ответа SaveFrom.net:\n{response.text[:4000]}")
-            raise Exception("Не удалось найти ссылку для скачивания.")
+        # Парсим JSON-ответ
+        data = response.json()
+        if "url" not in data:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"JSON ответа:\n{response.text[:4000]}")
+            raise Exception("Не удалось найти ссылку для скачивания в JSON.")
 
-        video_url = download_link["href"]
+        video_url = data["url"]
         video_response = requests.get(video_url, headers=headers, stream=True)
         video_response.raise_for_status()
 
