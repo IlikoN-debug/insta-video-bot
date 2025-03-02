@@ -7,7 +7,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 INSTA_USERNAME = "test85046"
-INSTA_PASSWORD = "testtest1234567890"
+INSTA_PASSWORD = "Testtest1234567890"
 SESSION_FILE = "sessionfile"
 
 L = instaloader.Instaloader()
