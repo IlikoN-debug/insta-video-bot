@@ -2,90 +2,82 @@ import os
 import time
 import random
 import requests
+import logging
+from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Токен бота из переменной окружения
+# Настройка логов
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Токен бота
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# Заголовки для маскировки запросов
+# Заголовки для запросов
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124",
+    "Content-Type": "application/x-www-form-urlencoded",
 }
 
-# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Привет! Я бот для скачивания видео из Instagram.\n"
-        "Отправь мне публичную ссылку на Reels или пост, и я скачаю видео для тебя! 🎥"
-    )
+    await update.message.reply_text("👋 Привет! Отправь ссылку на Reels, и я скачаю видео!")
 
-# Обработка сообщений со ссылками
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text
     if "instagram.com" in message_text:
-        await update.message.reply_text("⏳ Проверяю ссылку, подожди немного...")
+        logger.info(f"Получена ссылка: {message_text}")
+        await update.message.reply_text("⏳ Проверяю...")
+
         try:
-            # Извлекаем shortcode из ссылки
-            shortcode = message_text.split("/")[-2]
-            if not shortcode:
-                raise ValueError("Ссылка некорректна, нет shortcode.")
-
-            # Формируем URL для iqsaved.com
-            iqsaved_url = f"https://iqsaved.com/ru/download-reels/{shortcode}/"
-            
-            # Запрос к iqsaved.com
-            response = requests.get(iqsaved_url, headers=headers)
+            # POST-запрос на iqsaved.com
+            data = {"url": message_text}
+            logger.info("Отправляю POST-запрос к iqsaved.com")
+            response = requests.post("https://iqsaved.com/ru/", headers=headers, data=data)
+            logger.info(f"Ответ от iqsaved.com: {response.status_code}")
             if response.status_code != 200:
-                raise Exception(f"Ошибка доступа к iqsaved.com: {response.status_code}")
+                raise Exception(f"Ошибка сервиса: {response.status_code}")
 
-            # Извлекаем прямую ссылку на видео из ответа (пример парсинга HTML)
-            video_url = None
-            if "mp4" in response.text:
-                # Здесь предполагается, что в HTML есть прямая ссылка на mp4
-                # Реальный парсинг зависит от структуры страницы iqsaved.com
-                start_idx = response.text.find("https://")
-                end_idx = response.text.find(".mp4") + 4
-                if start_idx != -1 and end_idx != -1:
-                    video_url = response.text[start_idx:end_idx]
-            
-            if not video_url:
-                raise Exception("Не удалось найти ссылку на видео в ответе iqsaved.com")
+            # Парсинг ссылки на видео
+            soup = BeautifulSoup(response.text, "html.parser")
+            download_button = soup.find("a", class_="button button__blue")
+            if not download_button or not download_button.get("href"):
+                logger.error("Не найдена кнопка 'Скачать видео'")
+                raise Exception("Не найдена ссылка на видео")
+            video_url = download_button["href"]
+            logger.info(f"Найдена ссылка на видео: {video_url}")
 
-            # Скачиваем видео
+            # Скачивание видео
             await update.message.reply_text("📥 Начинаю загрузку...")
             video_response = requests.get(video_url, headers=headers, stream=True)
             if video_response.status_code != 200:
-                raise Exception(f"Ошибка загрузки видео: {video_response.status_code}")
+                logger.error(f"Ошибка загрузки видео: {video_response.status_code}")
+                raise Exception(f"Ошибка загрузки: {video_response.status_code}")
 
-            # Сохраняем видео временно
-            video_path = f"temp_video_{shortcode}.mp4"
+            video_path = "temp_video.mp4"
             with open(video_path, "wb") as f:
-                for chunk in video_response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
+                for chunk in video_response.iter_content(8192):
+                    f.write(chunk)
 
             # Прогресс-бар
             for i in range(1, 6):
-                await update.message.reply_text(f"📥 Загрузка: {i * 20}%")
-                time.sleep(1)
+                await update.message.reply_text(f"📥 {i * 20}%")
+                time.sleep(0.5)
 
-            # Отправляем видео в Telegram
+            # Отправка и удаление
+            logger.info("Отправляю видео в Telegram")
             with open(video_path, "rb") as video_file:
                 await update.message.reply_video(video_file)
-            
-            # Удаляем временный файл
             os.remove(video_path)
-            
-            await update.message.reply_text("✅ Готово! Видео отправлено.")
+            logger.info("Файл удалён")
+            await update.message.reply_text("✅ Готово!")
 
         except Exception as e:
+            logger.error(f"Ошибка: {str(e)}")
             await update.message.reply_text(f"❌ Ошибка: {e}")
     else:
-        await update.message.reply_text("🔗 Отправь мне ссылку на видео из Instagram!")
+        await update.message.reply_text("🔗 Отправь ссылку на Instagram!")
 
-# Основная функция
 def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
