@@ -3,7 +3,7 @@ import instaloader
 import random
 import time
 import shutil
-import asyncio  # Добавлено отсутствовавшее импортирование
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -87,14 +87,15 @@ def main():
     
     # Указываем порт и хост для Render
     port = int(os.environ.get("PORT", 5000))
-    host = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "0.0.0.0")
+    host = "0.0.0.0"  # Используем 0.0.0.0 для Render
     
     # Запуск вебхука
     application.run_webhook(
         listen=host,
         port=port,
         url_path=TOKEN,
-        webhook_url=f"https://{host}/{TOKEN}"
+        webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{TOKEN}"
     )
+
 if __name__ == "__main__":
     main()
