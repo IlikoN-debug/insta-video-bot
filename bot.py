@@ -12,12 +12,13 @@ SESSION_FILE = "sessionfile"
 
 L = instaloader.Instaloader()
 
-async def login_instagram():
+def login_instagram():
     try:
         if os.path.exists(SESSION_FILE):
             L.load_session_from_file(INSTA_USERNAME, SESSION_FILE)
             print("Сессия загружена")
         else:
+            print(f"Попытка входа с {INSTA_USERNAME}")
             L.login(INSTA_USERNAME, INSTA_PASSWORD)
             L.save_session_to_file(SESSION_FILE)
             print("Сессия сохранена")
@@ -79,8 +80,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Неверная ссылка.")
 
-async def main():
-    await login_instagram()
+def main():
+    login_instagram()  # Синхронный вызов для авторизации
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
@@ -88,7 +89,7 @@ async def main():
     
     port = int(os.environ.get("PORT", 5000))
     host = "0.0.0.0"
-    await app.run_webhook(listen=host, port=port, url_path=TOKEN, webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{TOKEN}")
+    app.run_webhook(listen=host, port=port, url_path=TOKEN, webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{TOKEN}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
