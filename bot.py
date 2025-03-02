@@ -30,30 +30,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏳ Проверяю...")
 
         try:
-            # POST-запрос на iqsaved.com
+            # Первый POST-запрос
             data = {"url": message_text}
-            logger.info("Отправляю POST-запрос к iqsaved.com")
             response = requests.post("https://iqsaved.com/ru/", headers=headers, data=data)
-            logger.info(f"Ответ от iqsaved.com: {response.status_code}")
+            logger.info(f"Первый ответ: {response.status_code}")
             if response.status_code != 200:
-                raise Exception(f"Ошибка сервиса: {response.status_code}")
+                raise Exception(f"Ошибка: {response.status_code}")
 
-            # Парсинг ссылки на видео
+            # Парсинг кнопки "Скачать"
             soup = BeautifulSoup(response.text, "html.parser")
             download_button = soup.find("a", class_="button button__blue")
             if not download_button or not download_button.get("href"):
-                logger.error("Не найдена кнопка 'Скачать видео'")
-                raise Exception("Не найдена ссылка на видео")
+                logger.error("Кнопка не найдена")
+                raise Exception("Кнопка 'Скачать' не найдена")
             video_url = download_button["href"]
-            logger.info(f"Найдена ссылка на видео: {video_url}")
+            logger.info(f"Ссылка на видео: {video_url}")
 
-            # Скачивание видео
+            # Скачивание
             await update.message.reply_text("📥 Начинаю загрузку...")
             video_response = requests.get(video_url, headers=headers, stream=True)
             if video_response.status_code != 200:
-                logger.error(f"Ошибка загрузки видео: {video_response.status_code}")
+                logger.error(f"Ошибка загрузки: {video_response.status_code}")
                 raise Exception(f"Ошибка загрузки: {video_response.status_code}")
-
+            
             video_path = "temp_video.mp4"
             with open(video_path, "wb") as f:
                 for chunk in video_response.iter_content(8192):
