@@ -1,51 +1,90 @@
 import os
 import random
 import asyncio
-import yt_dlp
+import requests
+from bs4 import BeautifulSoup
 import shutil
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+# Токен Telegram из переменной окружения
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+SAVEFROM_URL = "https://uk.savefrom.net/savefrom.php"
 
 # Функция для команды /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Отправь мне ссылку на видео из Instagram, и я скачаю его для тебя.")
+    await update.message.reply_text("Привет! Отправь мне ссылку на видео из Instagram, и я скачаю его для тебя через SaveFrom.net.")
+
+# Функция для загрузки видео через SaveFrom.net
+async def download_video_from_savefrom(url):
+    try:
+        # Параметры запроса к SaveFrom.net
+        payload = {
+            "sf_url": url,
+            "new": "2",
+            "lang": "uk",
+            "app": "",
+            "country": "ua",
+            "os": "Windows",
+            "browser": "Chrome",
+            "channel": "second"
+        }
+        
+        # Отправляем POST-запрос на SaveFrom.net
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        response = requests.post(SAVEFROM_URL, data=payload, headers=headers)
+        response.raise_for_status()
+
+        # Парсим HTML-ответ
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Ищем кнопку "Завантажити MP4" или прямую ссылку на видео
+        download_button = soup.select_one("a[href*='mp4']")
+        if not download_button:
+            raise Exception("Не удалось найти ссылку для скачивания.")
+
+        video_url = download_button["href"]
+        
+        # Скачиваем видео
+        video_response = requests.get(video_url, headers=headers, stream=True)
+        video_response.raise_for_status()
+
+        # Сохраняем видео во временный файл
+        if os.path.exists("downloads"):
+            shutil.rmtree("downloads")
+        os.makedirs("downloads")
+        
+        video_path = "downloads/video.mp4"
+        with open(video_path, "wb") as f:
+            for chunk in video_response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        return video_path
+    
+    except Exception as e:
+        raise Exception(f"Ошибка при загрузке видео: {str(e)}")
 
 # Функция для обработки текстовых сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text
     
     if "instagram.com" in message_text:
-        await update.message.reply_text("Скачиваю видео, подожди немного...")
+        await update.message.reply_text("Скачиваю видео через SaveFrom.net, подожди немного...")
         
         try:
             # Случайная задержка для имитации человеческого поведения
             await asyncio.sleep(random.uniform(1.0, 3.0))
             
-            # Настройки для yt-dlp
-            ydl_opts = {
-                'outtmpl': 'downloads/%(id)s.%(ext)s',  # Сохраняем видео в папку downloads
-                'quiet': True,  # Отключаем лишние сообщения
-                'no_warnings': True,  # Игнорируем предупреждения
-                'format': 'best',  # Скачиваем лучшее качество
-            }
+            # Загружаем видео
+            video_path = await download_video_from_savefrom(message_text)
             
-            # Очистка папки downloads перед загрузкой
-            if os.path.exists("downloads"):
-                shutil.rmtree("downloads")
-            os.makedirs("downloads")
-            
-            # Скачивание видео
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(message_text, download=True)
-                video_path = ydl.prepare_filename(info)
-                
-            # Отправка видео пользователю
+            # Отправляем видео пользователю
             with open(video_path, 'rb') as video_file:
                 await update.message.reply_video(video_file)
             
-            # Удаление видео после отправки
+            # Удаляем временный файл
             os.remove(video_path)
             await update.message.reply_text("✅ Видео успешно отправлено!")
             
