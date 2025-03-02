@@ -1,4 +1,4 @@
 python-telegram-bot[webhooks]==20.0
 telegram
 requests
-beautifulsoup4
+instaloader
