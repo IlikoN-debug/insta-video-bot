@@ -33,13 +33,17 @@ async def download_video_from_savefrom(url, update, context):
         response = requests.post(worker_url, data=payload, headers=headers)
         response.raise_for_status()
 
-        # Парсим JSON-ответ
-        data = response.json()
-        if "url" not in data:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"JSON ответа:\n{response.text[:4000]}")
-            raise Exception("Не удалось найти ссылку для скачивания в JSON.")
+        # Проверяем, что ответ — JSON
+        try:
+            data = response.json()
+            if "url" not in data:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"JSON ответа:\n{response.text[:4000]}")
+                raise Exception("Не удалось найти ссылку для скачивания в JSON.")
+            video_url = data["url"]
+        except ValueError:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Не JSON, текст ответа:\n{response.text[:4000]}")
+            raise Exception("Ответ не в формате JSON.")
 
-        video_url = data["url"]
         video_response = requests.get(video_url, headers=headers, stream=True)
         video_response.raise_for_status()
 
