@@ -7,16 +7,13 @@ import shutil
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Токен Telegram из переменной окружения
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 SAVEFROM_URL = "https://uk.savefrom.net/savefrom.php"
 
-# Функция для команды /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Отправь мне ссылку на видео из Instagram, и я скачаю его для тебя через SaveFrom.net.")
 
-# Функция для загрузки видео через SaveFrom.net
-async def download_video_from_savefrom(url):
+async def download_video_from_savefrom(url, update, context):
     try:
         payload = {
             "sf_url": url,
@@ -37,6 +34,8 @@ async def download_video_from_savefrom(url):
         soup = BeautifulSoup(response.text, "html.parser")
         download_link = soup.find("a", class_="def-btn", href=True) or soup.find("a", href=lambda x: x and "mp4" in x.lower())
         if not download_link:
+            # Логируем первые 4000 символов ответа в чат
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"HTML ответа SaveFrom.net:\n{response.text[:4000]}")
             raise Exception("Не удалось найти ссылку для скачивания.")
 
         video_url = download_link["href"]
@@ -57,7 +56,6 @@ async def download_video_from_savefrom(url):
     except Exception as e:
         raise Exception(f"Ошибка при загрузке видео: {str(e)}")
 
-# Функция для обработки текстовых сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text
     
@@ -65,17 +63,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Скачиваю видео через SaveFrom.net, подожди немного...")
         
         try:
-            # Случайная задержка для имитации человеческого поведения
             await asyncio.sleep(random.uniform(1.0, 3.0))
+            video_path = await download_video_from_savefrom(message_text, update, context)
             
-            # Загружаем видео
-            video_path = await download_video_from_savefrom(message_text)
-            
-            # Отправляем видео пользователю
             with open(video_path, 'rb') as video_file:
                 await update.message.reply_video(video_file)
             
-            # Удаляем временный файл
             os.remove(video_path)
             await update.message.reply_text("✅ Видео успешно отправлено!")
             
@@ -86,17 +79,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Это не похоже на ссылку Instagram. Попробуй еще раз!")
 
-# Главная функция
 def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Указываем порт и хост для Render
     port = int(os.environ.get("PORT", 5000))
-    host = "0.0.0.0"  # Используем 0.0.0.0 для Render
+    host = "0.0.0.0"
     
-    # Запуск вебхука
     application.run_webhook(
         listen=host,
         port=port,
