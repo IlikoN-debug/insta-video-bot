@@ -18,7 +18,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Функция для загрузки видео через SaveFrom.net
 async def download_video_from_savefrom(url):
     try:
-        # Параметры запроса к SaveFrom.net
         payload = {
             "sf_url": url,
             "new": "2",
@@ -29,29 +28,21 @@ async def download_video_from_savefrom(url):
             "browser": "Chrome",
             "channel": "second"
         }
-        
-        # Отправляем POST-запрос на SaveFrom.net
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124"
         }
         response = requests.post(SAVEFROM_URL, data=payload, headers=headers)
         response.raise_for_status()
 
-        # Парсим HTML-ответ
         soup = BeautifulSoup(response.text, "html.parser")
-        
-        # Ищем кнопку "Завантажити MP4" или прямую ссылку на видео
-        download_button = soup.select_one("a[href*='mp4']")
-        if not download_button:
+        download_link = soup.find("a", class_="def-btn", href=True) or soup.find("a", href=lambda x: x and "mp4" in x.lower())
+        if not download_link:
             raise Exception("Не удалось найти ссылку для скачивания.")
 
-        video_url = download_button["href"]
-        
-        # Скачиваем видео
+        video_url = download_link["href"]
         video_response = requests.get(video_url, headers=headers, stream=True)
         video_response.raise_for_status()
 
-        # Сохраняем видео во временный файл
         if os.path.exists("downloads"):
             shutil.rmtree("downloads")
         os.makedirs("downloads")
