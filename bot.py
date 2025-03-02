@@ -1,79 +1,93 @@
 import os
 import time
-import random
+import instaloader
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Токен бота из переменной окружения
+# Получаем токен бота из переменной окружения
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# Хранилище лимитов (в памяти, для простоты)
-user_requests = {}
+# Заголовки для маскировки под браузер
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.instagram.com/",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Upgrade-Insecure-Requests": "1",
+}
 
-# Ограничение на количество запросов в день
-DAILY_LIMIT = 5
-
+# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /start — приветственное сообщение"""
     await update.message.reply_text(
-        "Привет! Я бот для загрузки видео из Instagram. Отправь мне ссылку, и я начну работу!\n"
-        f"Лимит: {DAILY_LIMIT} запросов в день."
+        "👋 Привет! Я бот для скачивания видео из Instagram.\n"
+        "Просто отправь мне ссылку на пост, и я скачаю видео для тебя! 🎥"
     )
 
+# Обработка сообщений со ссылками
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка сообщений с ссылками"""
-    user_id = update.message.from_user.id
     message_text = update.message.text
-
-    # Проверка лимита запросов
-    if user_id not in user_requests:
-        user_requests[user_id] = 0
-    
-    if user_requests[user_id] >= DAILY_LIMIT:
-        await update.message.reply_text(
-            f"Ты превысил дневной лимит в {DAILY_LIMIT} запросов. Попробуй завтра!"
-        )
-        return
-
-    # Проверка, является ли сообщение ссылкой на Instagram
     if "instagram.com" in message_text:
-        await update.message.reply_text("Проверяю ссылку... ⏳")
-
-        # Имитация проверки ссылки
-        time.sleep(1)
+        await update.message.reply_text("⏳ Скачиваю видео, подожди немного...")
+        try:
+            # Настройка Instaloader без авторизации
+            L = instaloader.Instaloader(
+                download_pictures=False,
+                download_videos=True,
+                download_video_thumbnails=False,
+                download_geotags=False,
+                download_comments=False,
+                save_metadata=False
+            )
+            # Применяем заголовки для маскировки
+            L.context._session.headers.update(headers)
+            
+            # Извлекаем shortcode из ссылки
+            shortcode = message_text.split("/")[-2]
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            
+            # Скачиваем пост в папку "downloads"
+            L.download_post(post, target="downloads")
+            
+            # Имитация прогресс-бара
+            for i in range(1, 6):
+                await update.message.reply_text(f"📥 Загрузка: {i * 20}%")
+                time.sleep(1)  # Имитация времени загрузки
+            
+            # Поиск и отправка видео
+            video_path = None
+            for root, dirs, files in os.walk("downloads"):
+                for file in files:
+                    if file.endswith(".mp4"):
+                        video_path = os.path.join(root, file)
+                        with open(video_path, 'rb') as video_file:
+                            await update.message.reply_video(video_file)
+                        # Удаляем видео после отправки
+                        os.remove(video_path)
+                        break
+                if video_path:
+                    break
+            
+            if video_path:
+                await update.message.reply_text("✅ Готово! Видео отправлено.")
+            else:
+                await update.message.reply_text("❌ Не удалось найти видео в посте.")
         
-        # Увеличение счётчика запросов
-        user_requests[user_id] += 1
-        
-        # Динамический прогресс загрузки
-        await update.message.reply_text("Начинаю загрузку... 📥")
-        for i in range(1, 6):
-            progress = i * 20
-            await update.message.reply_text(f"Загрузка: {progress}% [{'█' * i}{' ' * (5 - i)}]")
-            time.sleep(random.uniform(0.5, 1.5))  # Случайная задержка для реализма
-        
-        # Успешное завершение (здесь можно добавить реальную логику загрузки)
-        await update.message.reply_text(
-            f"Видео успешно загружено! 🎉\n"
-            f"Осталось запросов на сегодня: {DAILY_LIMIT - user_requests[user_id]}"
-        )
-        # Здесь можно добавить отправку видео, если есть легальный способ его получить
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка: {e}")
     else:
-        await update.message.reply_text(
-            "Пожалуйста, отправь корректную ссылку на видео из Instagram."
-        )
+        await update.message.reply_text("🔗 Пожалуйста, отправь мне ссылку на видео из Instagram!")
 
+# Основная функция
 def main():
-    """Запуск бота"""
     application = Application.builder().token(TOKEN).build()
-
-    # Обработчики команд и сообщений
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Старт бота
-    print("Бот запущен!")
-    application.run_polling()
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        url_path=TOKEN,
+        webhook_url=f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{TOKEN}"
+    )
 
 if __name__ == "__main__":
     main()
