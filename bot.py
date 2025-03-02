@@ -27,22 +27,27 @@ async def download_video_from_savefrom(url, update, context):
             "sf-nomad": "1"
         }
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124",
+            "Referer": "https://uk.savefrom.net/"  # Добавляем Referer
         }
         worker_url = "https://worker.savefrom.net/savefrom.php"
         response = requests.post(worker_url, data=payload, headers=headers)
         response.raise_for_status()
 
-        # Проверяем, что ответ — JSON
-        try:
-            data = response.json()
-            if "url" not in data:
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"JSON ответа:\n{response.text[:4000]}")
-                raise Exception("Не удалось найти ссылку для скачивания в JSON.")
-            video_url = data["url"]
-        except ValueError:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Не JSON, текст ответа:\n{response.text[:4000]}")
-            raise Exception("Ответ не в формате JSON.")
+        # Логируем ответ для анализа
+        text = response.text
+        if "Something went wrong" in text:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"SaveFrom.net не обработал ссылку:\n{text[:4000]}")
+            raise Exception("SaveFrom.net вернул ошибку обработки.")
+
+        # Ищем URL в тексте (на случай, если он где-то спрятан)
+        import re
+        url_match = re.search(r'(https?://[^\s]+\.mp4)', text)
+        if url_match:
+            video_url = url_match.group(0)
+        else:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Не нашел URL в ответе:\n{text[:4000]}")
+            raise Exception("Ссылка на видео не найдена.")
 
         video_response = requests.get(video_url, headers=headers, stream=True)
         video_response.raise_for_status()
